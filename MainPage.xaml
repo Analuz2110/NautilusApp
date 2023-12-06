@@ -6,7 +6,7 @@
     <ScrollView>
         <VerticalStackLayout
             Padding="30,0"
-            Spacing="25">
+            Spacing="15">
 
             <Image Source="logo_nautilus.jpeg" WidthRequest="360" />
 
@@ -43,7 +43,13 @@
                 FontSize="16"
                 SemanticProperties.HeadingLevel="Level1" />
 
-
+            <Button
+                x:Name="CounterBtn2"
+                Text="Ajuste de Sensibilidade" 
+                BackgroundColor="DarkBlue"
+                SemanticProperties.Hint="Counts the number of times you click"
+                Clicked="CounterBtn_Clicked"
+                HorizontalOptions="Fill" />
             <Button
                 x:Name="CounterBtn"
                 Text="Configurar Novo Dispositivo" 

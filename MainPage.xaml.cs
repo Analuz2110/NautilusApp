@@ -18,6 +18,8 @@ namespace NautilusApp
         private IMqttClient _mqttClient;
         private MqttClientConnectResult _connectResult;
         private Animation _pulsingAnimation;
+        private bool _tratandoMensagem;
+        private double _filtro = 0.7;
         private static bool _isAlarmActive = false;
         private static Stopwatch _alarmTimer = new Stopwatch();
 
@@ -58,75 +60,112 @@ namespace NautilusApp
                 .WithClientId(clientId)
                 .WithCleanSession()
                 .Build();
-           
-            _connectResult = await _mqttClient.ConnectAsync(options);
-
-            if (_connectResult.ResultCode == MqttClientConnectResultCode.Success)
+            try
             {
-                Console.WriteLine("Connected to MQTT broker successfully.");
-                LabelDescricao.Text = "Dispositivo conectado com suceso.";
-                AbsoluteLayoutConectado.IsVisible = true;
+                _connectResult = await _mqttClient.ConnectAsync(options);
 
-                // Subscribe to a topic
-                await _mqttClient.SubscribeAsync(topic);
-
-                double gyroX, gyroY, gyroZ;
-
-                // Callback function when a message is received
-                _mqttClient.ApplicationMessageReceivedAsync += e =>
+                if (_connectResult.ResultCode == MqttClientConnectResultCode.Success)
                 {
-                    string message = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
-                    string[] values = message.Split(';');                    
+                    Console.WriteLine("Connected to MQTT broker successfully.");
 
-                    if(_alarmTimer.ElapsedMilliseconds > 15000)
+                    MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        _isAlarmActive = false;
-                        _alarmTimer.Stop();
-                        _alarmTimer.Reset();
-                        Console.WriteLine("AAAAAAAAAAAAAAAAAAAAAAA");
-                        _pulsingAnimation.Dispose();
-                        AbsoluteLayoutIcone.IsVisible = false;
-                        AbsoluteLayoutConectado.IsVisible = true;
-                        Parar.IsVisible = false;
                         LabelDescricao.Text = "Dispositivo conectado com suceso.";
-                    }
+                        AbsoluteLayoutConectado.IsVisible = true;
+                    });
+                    
 
-                    if (values.Length >= 3)
+                    // Subscribe to a topic
+                    await _mqttClient.SubscribeAsync(topic);
+                   
+
+                    // Callback function when a message is received
+                    _mqttClient.ApplicationMessageReceivedAsync += async e =>
                     {
-                        gyroX = double.Parse(values[0], CultureInfo.InvariantCulture);
-                        gyroY = double.Parse(values[1], CultureInfo.InvariantCulture); 
-
-                        if ((gyroX > 1.1 || gyroX < -1.1 || gyroY > 1.1 || gyroY < -1.1) && !_alarmTimer.IsRunning)
+                        if (!_tratandoMensagem)
                         {
-                            AcionarAlarme();
-                            LabelDescricao.Text = "ATENÇÃO: movimento detectado.";
-                            AbsoluteLayoutConectado.IsVisible = false;
-                            AbsoluteLayoutIcone.IsVisible = true;
-                            Parar.IsVisible = true;
-                            _isAlarmActive = true;
-                            _alarmTimer.Start();
+                            _tratandoMensagem = true;
 
-                            Console.WriteLine("ALARME ACIONADO.");
+                            string message = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+                            string[] values = message.Split(';');
+
+
+                            await TrataMensagem(values);
+
+                            Console.WriteLine($"Received message: {message}");
+
+                            _tratandoMensagem = false;
                         }
-                    }
-                    else
+                     
+                    };
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to connect to MQTT broker: {_connectResult.ResultCode}");
+                }
+
+                while (true)
+                {
+                    await Task.Delay(1000);  // Adjust the delay as needed
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }             
+        }
+
+        private async Task TrataMensagem(string[] values)
+        {
+            double gyroX, gyroY, gyroZ;
+
+            if (_alarmTimer.ElapsedMilliseconds > 15000)
+            {
+                _isAlarmActive = false;
+                _alarmTimer.Stop();
+                _alarmTimer.Reset();
+                Console.WriteLine("AAAAAAAAAAAATESTEAAAAAAAAAAA");
+
+                MainThread.BeginInvokeOnMainThread(() =>
+                {                   
+                    LabelDescricao.Text = "Dispositivo conectado com suceso.";                   
+                    _pulsingAnimation.Pause();
+                    AbsoluteLayoutIcone.IsVisible = false;
+                    AbsoluteLayoutConectado.IsVisible = true;
+                    Parar.IsVisible = false;
+                });
+                
+            }
+
+            if (values.Length >= 3)
+            {
+                gyroX = double.Parse(values[0], CultureInfo.InvariantCulture);
+                gyroY = double.Parse(values[1], CultureInfo.InvariantCulture);
+
+                if ((gyroX > _filtro || gyroX < -_filtro || gyroY > _filtro || gyroY < -_filtro) && !_alarmTimer.IsRunning)
+                {
+                    AcionarAlarme();
+
+                    MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        Console.WriteLine("Invalid message format.");
-                    }
-                    Console.WriteLine($"Received message: {message}");
-                    return Task.CompletedTask;
-                };               
+                        LabelDescricao.Text = "ATENÇÃO: movimento na piscina.";
+                        AbsoluteLayoutConectado.IsVisible = false;
+                        AbsoluteLayoutIcone.IsVisible = true;
+                        Parar.IsVisible = true;
+                    });
+                    
+                    _isAlarmActive = true;
+                    _alarmTimer.Start();
+
+                    Console.WriteLine("ALARME ACIONADO.");
+                }
             }
             else
             {
-                Console.WriteLine($"Failed to connect to MQTT broker: {_connectResult.ResultCode}");
+                Console.WriteLine("Invalid message format.");
             }
-
-            while (true)
-            {
-                
-                    await Task.Delay(1000);  // Adjust the delay as needed
-            }         
+            
+            
         }
 
         private async void AcionarAlarme()
@@ -149,12 +188,27 @@ namespace NautilusApp
             _audioPlayer = _audioManager.CreatePlayer(await FileSystem.OpenAppPackageFileAsync("alarm.wav"));
             _audioPlayer.Play();
 
-            PulsingIcon.BackgroundColor = Color.FromHex("#FF0000");
-            _pulsingAnimation.Commit(this, "PulseAnimation", length: 2000, repeat: () => true);
+
+
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                PulsingIcon.BackgroundColor = Color.FromHex("#FF0000");
+                _pulsingAnimation.Commit(this, "PulseAnimation", length: 2000, repeat: () => true);
+            });           
+
         }
         private async void OnCounterClicked(object sender, EventArgs e)
         {
-            ConexaoBroker(await DisplayPromptAsync("Insira o ID do seu dispositivo", ""));
+            try
+            {
+                string retorno = await DisplayPromptAsync("Insira o ID do seu dispositivo", "");
+                Task.Run(async () => ConexaoBroker(retorno));
+            }
+            catch(Exception ex)
+            {
+
+            }
+            
         }
 
         private void TapGestureRecognizer_Tapped(object sender, TappedEventArgs e)
@@ -162,6 +216,20 @@ namespace NautilusApp
             if(_audioPlayer != null)
             {
                 _audioPlayer.Stop();
+            }
+            
+        }
+
+        private async void CounterBtn_Clicked(object sender, EventArgs e)
+        {
+            try
+            {
+                string retorno = await DisplayPromptAsync("Insira o valor limite de aceleração:", "");
+                _filtro = Convert.ToDouble(retorno);
+            }
+            catch (Exception ex)
+            {
+
             }
             
         }
